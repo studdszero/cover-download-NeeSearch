@@ -1,0 +1,105 @@
+// @name WNACG 搜索当前文件夹
+// @description 提取当前文件夹/压缩包名称，在 wnacg.com 搜索并用默认浏览器打开
+
+var ARCHIVE_EXTENSIONS = [".zip", ".rar", ".7z", ".cbz", ".cbr", ".cb7", ".lzh", ".zipx"];
+
+function endsWithIgnoreCase(text, suffix) {
+    if (text.length < suffix.length) {
+        return false;
+    }
+    return text.substring(text.length - suffix.length).toLowerCase() === suffix.toLowerCase();
+}
+
+function isArchiveFile(path) {
+    var lowerPath = path.toLowerCase();
+    for (var i = 0; i < ARCHIVE_EXTENSIONS.length; i++) {
+        if (endsWithIgnoreCase(lowerPath, ARCHIVE_EXTENSIONS[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function trimTrailingSeparators(path) {
+    return path.replace(/[\\\/]+$/, "");
+}
+
+function getRawPath() {
+    if (nv.Book.ViewPages != null && nv.Book.ViewPages.length > 0) {
+        var viewPage = nv.Book.ViewPages[0];
+        if (viewPage.RawPath != null && viewPage.RawPath.length > 0) {
+            return viewPage.RawPath;
+        }
+    }
+    return null;
+}
+
+function getEntityPath() {
+    if (nv.Book.ViewPages != null && nv.Book.ViewPages.length > 0) {
+        var viewPage = nv.Book.ViewPages[0];
+        if (viewPage.Path != null && viewPage.Path.length > 0) {
+            return viewPage.Path;
+        }
+    }
+    return nv.Book.Path;
+}
+
+function extractKeyword() {
+    if (nv.Book == null || nv.Book.Path == null) {
+        return null;
+    }
+
+    var bookPath = nv.Book.Path;
+
+    // 文件夹作为书本打开：Book.Path 就是该文件夹（优先判断，避免文件夹名里的 ! 被误判）
+    if (System.IO.Directory.Exists(bookPath)) {
+        return System.IO.Path.GetFileName(trimTrailingSeparators(bookPath));
+    }
+
+    var rawPath = getRawPath();
+    var pathForArchive = rawPath != null ? rawPath : bookPath;
+
+    // 压缩包内图片：D:\漫画\2024旅行.zip!\folder\page001.jpg
+    // 仅当 ! 前面确实是压缩包文件时才分割（文件夹名中也可能含 !）
+    var bangIndex = pathForArchive.indexOf("!");
+    if (bangIndex >= 0) {
+        var archivePath = pathForArchive.substring(0, bangIndex);
+        if (isArchiveFile(archivePath) && System.IO.File.Exists(archivePath)) {
+            return System.IO.Path.GetFileNameWithoutExtension(archivePath);
+        }
+    }
+
+    // 压缩包本身作为书本打开：D:\漫画\2024旅行.zip
+    if (isArchiveFile(bookPath) && System.IO.File.Exists(bookPath)) {
+        return System.IO.Path.GetFileNameWithoutExtension(bookPath);
+    }
+
+    // 单张图片：取所在文件夹名
+    var entityPath = getEntityPath();
+    var parentDir = System.IO.Path.GetDirectoryName(entityPath);
+    if (parentDir == null || parentDir === "") {
+        return null;
+    }
+    return System.IO.Path.GetFileName(trimTrailingSeparators(parentDir));
+}
+
+function buildSearchUrl(keyword) {
+    // wnacg 直接用原始文件夹名搜索，不做 URL 编码
+    return "https://www.wnacg.com/search/?q=" + keyword + "&f=_all&s=create_time_DESC&syn=yes";
+}
+
+function escapeForCmdPercent(url) {
+    return url.replace(/%/g, "%%");
+}
+
+function openUrlInDefaultBrowser(url) {
+    var cmdUrl = escapeForCmdPercent(url);
+    system("cmd", "/c rundll32 url.dll,FileProtocolHandler \"" + cmdUrl + "\"");
+}
+
+var keyword = extractKeyword();
+if (keyword == null || keyword === "") {
+    nv.ShowMessage("无法提取文件夹名称。\nBook.Path: " + (nv.Book != null ? nv.Book.Path : "(无)"));
+} else {
+    openUrlInDefaultBrowser(buildSearchUrl(keyword));
+}
